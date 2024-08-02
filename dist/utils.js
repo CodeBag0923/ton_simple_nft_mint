@@ -10,22 +10,59 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.openWallet = openWallet;
+exports.encodeOffChainContent = encodeOffChainContent;
 const ton_crypto_1 = require("ton-crypto");
 const ton_1 = require("ton");
 function openWallet(mnemonic, testnet) {
     return __awaiter(this, void 0, void 0, function* () {
         const keyPair = yield (0, ton_crypto_1.mnemonicToPrivateKey)(mnemonic);
-        const toncenterBaseEndpoiint = testnet ? "https://testnet.toncenter.com" : "https://toncenter.com";
+        const toncenterBaseEndpoint = testnet
+            ? "https://testnet.toncenter.com"
+            : "https://toncenter.com";
         const client = new ton_1.TonClient({
-            endpoint: `${toncenterBaseEndpoiint}/api/v2/jsonRPC`,
-            apiKey: process.env.TONCENTER_API_KEY
+            endpoint: `${toncenterBaseEndpoint}/api/v2/jsonRPC`,
+            apiKey: process.env.TONCENTER_API_KEY,
         });
         const wallet = ton_1.WalletContractV4.create({
             workchain: 0,
-            publicKey: keyPair.publicKey
+            publicKey: keyPair.publicKey,
         });
-        const contract = client.open(wallet);
+        let contract = client.open(wallet);
         return { contract, keyPair };
     });
+}
+function bufferToChunks(buff, chunkSize) {
+    const chunks = [];
+    while (buff.byteLength > 0) {
+        chunks.push(buff.slice(0, chunkSize));
+        buff = buff.slice(chunkSize);
+    }
+    return chunks;
+}
+function makeSnakeCell(data) {
+    const chunks = bufferToChunks(data, 127);
+    if (chunks.length === 0) {
+        return (0, ton_1.beginCell)().endCell();
+    }
+    if (chunks.length === 1) {
+        return (0, ton_1.beginCell)().storeBuffer(chunks[0]).endCell();
+    }
+    let curCell = (0, ton_1.beginCell)();
+    for (let i = chunks.length - 1; i >= 0; i--) {
+        const chunk = chunks[i];
+        curCell.storeBuffer(chunk);
+        if (i - 1 >= 0) {
+            const nextCell = (0, ton_1.beginCell)();
+            nextCell.storeRef(curCell);
+            curCell = nextCell;
+        }
+    }
+    return curCell.endCell();
+}
+function encodeOffChainContent(content) {
+    let data = Buffer.from(content);
+    const offChainPrefix = Buffer.from([0x01]);
+    data = Buffer.concat([offChainPrefix, data]);
+    return makeSnakeCell(data);
 }
 //# sourceMappingURL=utils.js.map
